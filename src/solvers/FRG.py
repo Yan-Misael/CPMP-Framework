@@ -1,10 +1,7 @@
 from settings import INSTANCE_FOLDER, FRG_PATH
 from solvers.solver import Solver
-from generation.adapters import *
 import subprocess
 import os
-from concurrent.futures import ProcessPoolExecutor
-from functools import partial
 
 
 class FRGSolver(Solver): 

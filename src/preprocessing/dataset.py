@@ -65,40 +65,84 @@ def load_dataset(filepath, max_size=None, verbose=True):
     return dataset
 
 def load_data_from_path(filepath):
+    """Carga datos respetando la estructura de grupos input/output"""
     with h5py.File(filepath, "r") as f:
-        keys = list(f.attrs['key_order'])
-        data = {k: f[k][:] for k in keys}
+        # Extraemos keys de los grupos
+        input_keys = list(f['input'].attrs['key_order'])
+        output_keys = list(f['output'].attrs['key_order'])
+        
+        data = {}
+        # Cargamos los inputs
+        for k in input_keys:
+            data[f'input/{k}'] = f['input'][k][:]
+            
+        # Cargamos los outputs
+        for k in output_keys:
+            data[f'output/{k}'] = f['output'][k][:]
+            
+        # El costo 'C' suele estar en la raíz según tu implementación anterior
         data['C'] = f['C'][:]
+        
+        # Guardamos metadatos de orden para la reconstrucción
+        data['_input_order'] = input_keys
+        data['_output_order'] = output_keys
         return data
     
 def load_data(filename):
     return load_data_from_path(DATA_FOLDER / filename)
 
-def generate_dataset(data_files, output_name, min_cost, max_cost, max_size):
+def generate_dataset(data_files, output_name, min_cost=0, max_cost=999999, max_size=999999):
     output_path = DATA_FOLDER / output_name
     all_data = {}
+    input_order = []
+    output_order = []
     
     for data_file in data_files:
-        path = str(DATA_FOLDER / data_file)
-        if os.path.exists(path):
-            data = load_data_from_path(path) # Usa el orden correcto automáticamente
+        path = DATA_FOLDER / data_file
+        if path.exists():
+            data = load_data_from_path(path)
             if not all_data:
+                # Inicializamos las listas para cada path completo (ej: 'input/layout')
                 all_data = {k: [] for k in data.keys()}
+                input_order = data['_input_order']
+                output_order = data['_output_order']
+            
             for k in data:
                 all_data[k].append(data[k])
 
     if not all_data: return
 
-    key_order = [k for k in all_data.keys() if k != 'C']
+    # Combinar todos los archivos leídos
+    combined_data = {k: np.concatenate(all_data[k], axis=0) for k in all_data if not k.startswith('_')}
+    
+    # Crear máscara de filtrado por costo
+    mask = (combined_data['C'] >= min_cost) & (combined_data['C'] <= max_cost)
+    total_available = np.sum(mask)
+    final_len = min(total_available, max_size)
+    
+    # Aplicar máscara y límite de tamaño
+    for k in combined_data:
+        combined_data[k] = combined_data[k][mask][:final_len]
 
+    # Escritura del archivo con la nueva estructura
     with h5py.File(output_path, "w") as f:
-        f.attrs['key_order'] = key_order
-        combined_data = {k: np.concatenate(all_data[k], axis=0) for k in all_data}
+        # 1. Crear Grupos
+        g_input = f.create_group("input")
+        g_output = f.create_group("output")
         
-        mask = (combined_data['C'] >= min_cost) & (combined_data['C'] <= max_cost)
-        final_len = min(np.sum(mask), max_size)
+        # 2. Guardar Inputs
+        for k in input_order:
+            full_key = f'input/{k}'
+            g_input.create_dataset(k, data=combined_data[full_key])
+        g_input.attrs['key_order'] = input_order
         
-        for k in combined_data:
-            f.create_dataset(k, data=combined_data[k][mask][:max_size])
+        # 3. Guardar Outputs
+        for k in output_order:
+            full_key = f'output/{k}'
+            g_output.create_dataset(k, data=combined_data[full_key])
+        g_output.attrs['key_order'] = output_order
+        
+        # 4. Guardar Costo en la raíz (para compatibilidad con tu H5Dataset)
+        f.create_dataset("C", data=combined_data['C'])
 
     print(f"Dataset generado exitosamente en: {output_path} (Tamaño {final_len})")

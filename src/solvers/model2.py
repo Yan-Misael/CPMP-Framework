@@ -1,13 +1,17 @@
 import torch
 from solvers.solver import Solver
 import copy
+from generation.adaptersx import *
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
+from cpmp.layout import read_file
 
 
 class ModelSolver(Solver): 
-    def __init__(self, model, input_adapter, batch_size=32):
+    def __init__(self, model, layout_adapter, batch_size=32):
         super().__init__("ModelSolver")
         self.model = model
-        self.input_adapter = input_adapter
+        self.layout_adapter = layout_adapter
         self.batch_size = batch_size
 
     def solve_from_layouts(self, layouts, H, max_steps):
@@ -25,6 +29,7 @@ class ModelSolver(Solver):
         
         # Historial de estados visitados por cada layout individualmente
         visited_states_list = [set() for _ in range(num_layouts)]
+        first_it = True
         
         with torch.no_grad():
             while any(not l.is_sorted() and l.steps < max_steps for l in layouts):
@@ -42,7 +47,7 @@ class ModelSolver(Solver):
                 # Preparación del batch de datos
                 batch_data_lists = []
                 for i in active_indices:
-                    data = list(self.input_adapter.input_2_vec(layouts[i], H))
+                    data = list(self.layout_adapter.layout_2_vec(layouts[i], H))
                     for j in range(len(data)):
                         val = data[j]
                         data[j] = torch.tensor([val]) if isinstance(val, (int, float)) else torch.from_numpy(val).unsqueeze(0)
@@ -55,6 +60,9 @@ class ModelSolver(Solver):
                 # Inferencia en batch
                 output = self.model(*batch_inputs)
                 logits = output[0] if isinstance(output, tuple) else output
+                if first_it:
+                    c = output[1]
+                    first_it = False
                 
                 # Ordenamos índices de mejor a peor para cada layout en el batch
                 _, top_indices_batch = torch.sort(logits, dim=1, descending=True)
@@ -82,4 +90,4 @@ class ModelSolver(Solver):
 
         # Resultados finales
         results = [(l.unsorted_stacks == 0, l.steps) for l in layouts]
-        return results
+        return results, c

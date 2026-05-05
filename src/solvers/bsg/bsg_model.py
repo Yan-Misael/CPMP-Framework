@@ -2,14 +2,13 @@ import torch
 from solvers.solver import Solver
 from solvers.model import ModelSolver
 import copy
-from generation.adapters import *
 
 
-class BSGSolver(Solver): 
-    def __init__(self, model, layout_adapter, w, batch_size=32):
+class BSGModelSolver(Solver): 
+    def __init__(self, model, input_adapter, w, batch_size=32):
         super().__init__("ModelSolver")
         self.model = model
-        self.layout_adapter = layout_adapter
+        self.input_adapter = input_adapter
         self.w = w
         self.batch_size = batch_size
 
@@ -25,7 +24,7 @@ class BSGSolver(Solver):
         states = []
         states.append(layout)
         best_state = None
-        model_solver = ModelSolver(self.model, self.layout_adapter, self.batch_size)
+        model_solver = ModelSolver(self.model, self.input_adapter, self.batch_size)
         visited_states = set()
 
         while not best_state and states[0].steps < max_steps:
@@ -60,7 +59,7 @@ class BSGSolver(Solver):
         # Preparación del batch de datos
         batch_data_lists = []
         for state in states:
-            data = list(self.layout_adapter.layout_2_vec(state, H))
+            data = list(self.input_adapter.input_2_vec(state, H))
             for j in range(len(data)):
                 val = data[j]
                 data[j] = torch.tensor([val]) if isinstance(val, (int, float)) else torch.from_numpy(val).unsqueeze(0)

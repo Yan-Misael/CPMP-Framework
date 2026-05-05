@@ -4,9 +4,7 @@ import copy
 import os
 import h5py
 import numpy as np
-from generation.adapters import *
 from concurrent.futures import ProcessPoolExecutor
-from functools import partial
 from solvers.FRG import FRGSolver
 from solvers.model import ModelSolver
 import torch
@@ -54,18 +52,18 @@ def generate_data_from_file(filepath):
     if layout.unsorted_stacks == 0: 
         return None
 
-    layout_vec = worker_la_adapter.layout_2_vec(layout, worker_H)
+    input_vec = worker_la_adapter.input_2_vec(layout, worker_H)
     S = len(layout.stacks)
 
     best_moves, cost = get_best_moves(layout, worker_H, worker_max_steps)
-    if len(best_moves) == 0:
+    if cost == 0 or len(best_moves) == 0:
         return None
 
-    moves_vec = worker_ma_adapter.output_2_vec(best_moves, S, cost)
+    output_vec = worker_ma_adapter.output_2_vec(best_moves, S, cost)
 
-    return layout_vec, moves_vec, cost
+    return input_vec, output_vec, cost
 
-def generate_data(filepaths, layout_adapter, moves_adapter, init_worker, init_args, num_workers, output_name, verbose=True):
+def generate_data(filepaths, input_adapter, output_adapter, init_worker, init_args, num_workers, output_name, verbose=True):
     with ProcessPoolExecutor(
         max_workers=num_workers,
         initializer=init_worker,
@@ -73,23 +71,23 @@ def generate_data(filepaths, layout_adapter, moves_adapter, init_worker, init_ar
     ) as executor:
         results = list(executor.map(generate_data_from_file, filepaths))
 
-    la_class, *la_args = layout_adapter
-    ma_class, *ma_args = moves_adapter
-    layout_adapter = la_class(*la_args)
-    moves_adapter = ma_class(*ma_args)
+    la_class, *la_args = input_adapter
+    ma_class, *ma_args = output_adapter
+    input_adapter = la_class(*la_args)
+    output_adapter = ma_class(*ma_args)
 
     costs = []
     for result in results:
         if result is None:
             continue
 
-        layout_vec, moves_vec, cost = result
-        layout_adapter.add(layout_vec)
-        moves_adapter.add(moves_vec)
+        input_vec, output_vec, cost = result
+        input_adapter.add(input_vec)
+        output_adapter.add(output_vec)
         costs.append(cost)
 
-    layout_data = layout_adapter.get()
-    moves_data = moves_adapter.get()
+    input_data = input_adapter.get()
+    output_data = output_adapter.get()
 
     output_path = DATA_FOLDER / f"{output_name}"
 
@@ -97,65 +95,70 @@ def generate_data(filepaths, layout_adapter, moves_adapter, init_worker, init_ar
         g_input = f.create_group("input")
         g_output = f.create_group("output")
 
-        input_keys = list(layout_data.keys())
+        input_keys = list(input_data.keys())
         for key in input_keys:
-            g_input.create_dataset(key, data=layout_data[key])
+            g_input.create_dataset(key, data=input_data[key])
         g_input.attrs['key_order'] = [k for k in input_keys]
 
-        output_keys = list(moves_data.keys())
+        output_keys = list(output_data.keys())
         for key in output_keys:
-            g_output.create_dataset(key, data=moves_data[key])
+            g_output.create_dataset(key, data=output_data[key])
         g_output.attrs['key_order'] = [k for k in output_keys]
 
         f.create_dataset("C", data=np.stack(costs, dtype=np.int32))
 
     if verbose:
-        print(f"Datos guardados en: {output_path} (Tamaño {layout_adapter.count()})")
+        print(f"Datos guardados en: {output_path} (Tamaño {input_adapter.count()})")
 
-def init_worker(H, max_steps, layout_adapter_config, moves_adapter_config):
+def init_worker(H, max_steps, input_adapter_config, output_adapter_config):
     global worker_la_adapter
     global worker_ma_adapter
     global worker_H
     global worker_max_steps
 
-    la_class, *la_args = layout_adapter_config
-    ma_class, *ma_args = moves_adapter_config
+    la_class, *la_args = input_adapter_config
+    ma_class, *ma_args = output_adapter_config
     worker_la_adapter = la_class(*la_args)
     worker_ma_adapter = ma_class(*ma_args)
 
     worker_H = H
     worker_max_steps = max_steps
 
-def init_worker_sl(H, max_steps, layout_adapter_config, moves_adapter_config):
+def init_worker_sl(H, max_steps, input_adapter_config, output_adapter_config, solver_config):
     global worker_solver
 
-    init_worker(H, max_steps, layout_adapter_config, moves_adapter_config)
-    worker_solver = FRGSolver()
+    init_worker(H, max_steps, input_adapter_config, output_adapter_config)
+    solver_class, *solver_args = solver_config
+    worker_solver = solver_class(*solver_args)
 
-def generate_data_sl(folder, H, max_steps, layout_adapter_config, moves_adapter_config, num_workers, output_name, verbose=True):
-    init_args = (H, max_steps, layout_adapter_config, moves_adapter_config)
-    instance_files = [os.path.join(folder, f) for f in os.listdir(INSTANCE_FOLDER / folder)]
-    generate_data(instance_files, layout_adapter_config, moves_adapter_config, init_worker_sl, init_args, num_workers, output_name, verbose)
+def generate_data_sl(folders, H, max_steps, input_adapter_config, output_adapter_config, solver_config, num_workers, output_name_prefix=None, verbose=True):
+    init_args = (H, max_steps, input_adapter_config, output_adapter_config, solver_config)
+    for folder in folders:
+        instance_files = [os.path.join(folder, f) for f in os.listdir(INSTANCE_FOLDER / folder)]
+        output_name = folder + ".data"
+        if output_name_prefix:
+            output_name = output_name_prefix + "_" + output_name
+        generate_data(instance_files, input_adapter_config, output_adapter_config, solver_config, init_worker_sl, init_args, num_workers, output_name, verbose)
     
-def init_worker_rl(H, max_steps, model_cls, model_params, weights, layout_adapter_config, moves_adapter_config, batch_size):
+def init_worker_rl(H, max_steps, model_cls, model_params, weights, input_adapter_config, output_adapter_config, batch_size):
     global worker_solver
 
     torch.set_num_threads(1) 
     torch.set_num_interop_threads(1)
 
-    init_worker(H, max_steps, layout_adapter_config, moves_adapter_config)
+    init_worker(H, max_steps, input_adapter_config, output_adapter_config)
     model = model_cls(**model_params)
     model.load_state_dict(weights)
     model.eval()
     worker_solver = ModelSolver(model, worker_la_adapter, batch_size)
 
-def generate_data_rl(instance_files, H, max_steps, layout_adapter_config, moves_adapter_config, model, batch_size, num_workers, output_name, verbose=True):
+def generate_data_rl(instance_files, H, max_steps, input_adapter_config, output_adapter_config, model, batch_size, num_workers, output_name, verbose=True):
     model_cls = model.__class__
     model_params = model.hyperparams
     weights = model.state_dict()
     
-    init_args = (H, max_steps, model_cls, model_params, weights, layout_adapter_config, moves_adapter_config, batch_size)
-    generate_data(instance_files, layout_adapter_config, moves_adapter_config, init_worker_rl, init_args, num_workers, output_name, verbose)
+    init_args = (H, max_steps, model_cls, model_params, weights, input_adapter_config, output_adapter_config, batch_size)
+    generate_data(instance_files, input_adapter_config, output_adapter_config, init_worker_rl, init_args, num_workers, output_name, verbose)
 
 def split_instances(folders, p1, p2, seed):
     # 1. Preparación de archivos

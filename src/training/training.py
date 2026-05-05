@@ -223,6 +223,8 @@ def rl_train(model, iterations, datagen_config, epochs, train_size, test_size, b
     i = 0
 
     train_instances, test_instances = split_instances(datagen_config.instance_sets, train_size, test_size, seed)
+    train_instances = train_instances[:train_size]
+    test_instances = test_instances[:test_size]
 
     try:
         while True:
