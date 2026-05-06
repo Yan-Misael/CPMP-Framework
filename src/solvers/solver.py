@@ -10,8 +10,16 @@ class Solver(ABC):
     def solve(self, instance_file, H, max_steps):
         instance_path = INSTANCE_FOLDER / instance_file
         layout = read_file(instance_path, H)
-        return self.solve_from_layouts([layout], H, max_steps)[0]
+        return self.solve_from_layout(layout, H, max_steps)
 
+    # Función para evaluar una instancia a la vez
+    # Retorna solved, steps, time
+    @abstractmethod
+    def solve_from_layout(self, layout, H, max_steps):
+        pass
+
+    # Función optimizada para varias instancias
+    # Retorna solved, steps
     @abstractmethod
     def solve_from_layouts(self, layout, H, max_steps):
         pass

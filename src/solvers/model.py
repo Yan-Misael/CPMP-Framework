@@ -1,6 +1,7 @@
 import torch
 from solvers.solver import Solver
 import copy
+import time
 
 
 class ModelSolver(Solver): 
@@ -21,6 +22,14 @@ class ModelSolver(Solver):
             results += r
 
         return results
+    
+    def solve_from_layout(self, layout, H, max_steps):
+        t0 = time.perf_counter()
+        result = self.solve_from_layouts([layout], H, max_steps)[0]
+        t1 = time.perf_counter()
+        t = t1 - t0
+
+        return *result, t
 
     def solve_batch(self, layouts, H, max_steps):
         S = len(layouts[0].stacks)

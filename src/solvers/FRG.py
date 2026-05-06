@@ -2,11 +2,21 @@ from settings import INSTANCE_FOLDER, FRG_PATH
 from solvers.solver import Solver
 import subprocess
 import os
+from cpmp.layout import lay2file
 
 
 class FRGSolver(Solver): 
     def __init__(self):
         super().__init__("FRG")
+
+    def solve_from_layouts(self, layouts, H, max_steps):
+        results = []
+        for layout in layouts:
+            r = self.solve_from_layout(layout, H, max_steps)
+            r = [r[0], r[1]]
+            results.append(r)
+
+        return results
 
     @staticmethod
     def solve_from_layout(layout, H, max_steps):
@@ -14,7 +24,7 @@ class FRGSolver(Solver):
         filepath = INSTANCE_FOLDER / f"tmp_{pid}.txt"
 
         try:
-            FRGSolver.lay2file(layout, filepath)
+            lay2file(layout, filepath)
 
             result = subprocess.run(
                 [FRG_PATH, str(H), filepath, "1.2", str(max_steps), "0", "--no-assignement", "2"],
@@ -23,30 +33,18 @@ class FRGSolver(Solver):
                 capture_output=True
             )
             
-            output_str = result.stdout.split('\t')[0].strip()
-            if not output_str.isdigit():
-                return False, float('inf')
+            output_str = result.stdout.split('\t')
+            
+            steps_str = output_str[0].strip()
+            if not steps_str.isdigit():
+                solved = False
+                steps = float('inf')
+            else:
+                solved = True
+                steps = int(steps_str)
 
-            return True, int(output_str)
+            time_str = output_str[1].strip()
+            return solved, steps, float(time_str)
         finally:
             if os.path.exists(filepath):
                 os.remove(filepath)
-
-    @staticmethod
-    def lay2file(layout, filename):
-        S = layout.stacks
-
-        with open(filename, "w") as f:
-            num_sublists = len(S)
-            sum_lengths = sum(len(sublist) for sublist in S)
-            f.write(f"{num_sublists} {sum_lengths}\n")
-            for sublist in S:
-                f.write(str(len(sublist)) +" " + " ".join(str(x) for x in sublist) + "\n")
-
-    def solve_from_layouts(self, layouts, H, max_steps):
-        results = []
-        for layout in layouts:
-            r = self.solve_from_layout(layout, H, max_steps)
-            results.append(r)
-
-        return results

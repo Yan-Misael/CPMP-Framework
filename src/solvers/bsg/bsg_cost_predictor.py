@@ -1,11 +1,12 @@
 import torch
 from solvers.solver import Solver
 import copy
+import time
 
 
 class BSGCostPredictorSolver(Solver): 
     def __init__(self, action_model, cost_model, input_adapter, w, batch_size=32):
-        super().__init__("ModelSolver")
+        super().__init__("BSGCostPredictorSolver")
         self.action_model = action_model
         self.cost_model = cost_model
         self.input_adapter = input_adapter
@@ -16,11 +17,14 @@ class BSGCostPredictorSolver(Solver):
         results = []
         for layout in layouts:
             r = self.solve_from_layout(layout, H, max_steps)
+            r = [r[0], r[1]]
             results.append(r)
 
         return results
     
     def solve_from_layout(self, layout, H, max_steps):
+        t0 = time.perf_counter()
+
         states = []
         states.append(layout)
         best_state = None
@@ -47,9 +51,12 @@ class BSGCostPredictorSolver(Solver):
                     best_state = state
                     break
 
+        t1 = time.perf_counter()
+        t = t1 - t0
+
         if best_state:
-            return True, best_state.steps
-        return False, float('inf')
+            return True, best_state.steps, t
+        return False, float('inf'), t
     
     def expand(self, states, visited_states, H):
         S = len(states[0].stacks)

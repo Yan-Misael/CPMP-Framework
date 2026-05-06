@@ -252,3 +252,13 @@ def read_file(file, H):
             
         layout = Layout(stacks,H)
     return layout
+
+def lay2file(layout, filename):
+    S = layout.stacks
+
+    with open(filename, "w") as f:
+        num_sublists = len(S)
+        sum_lengths = sum(len(sublist) for sublist in S)
+        f.write(f"{num_sublists} {sum_lengths}\n")
+        for sublist in S:
+            f.write(str(len(sublist)) +" " + " ".join(str(x) for x in sublist) + "\n")

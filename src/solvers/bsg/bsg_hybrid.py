@@ -1,13 +1,13 @@
 import torch
 from solvers.solver import Solver
-from solvers.model import ModelSolver
+from solvers.FRG import FRGSolver
 import copy
 import time
 
 
-class BSGModelSolver(Solver): 
+class BSGHybridSolver(Solver): 
     def __init__(self, model, input_adapter, w, batch_size=32):
-        super().__init__("BSGModelSolver")
+        super().__init__("BSGHybridSolver")
         self.model = model
         self.input_adapter = input_adapter
         self.w = w
@@ -28,7 +28,7 @@ class BSGModelSolver(Solver):
         states = []
         states.append(layout)
         best_state = None
-        model_solver = ModelSolver(self.model, self.input_adapter, self.batch_size)
+        solver = FRGSolver()
         visited_states = set()
         memory = None
 
@@ -42,7 +42,7 @@ class BSGModelSolver(Solver):
             evals = []
             for i in range(0, len(children), self.batch_size):
                 batch_children = children[i:i+self.batch_size]
-                batch_evals, memory = self.eval(model_solver, batch_children, H, max_steps, memory)
+                batch_evals = self.eval(solver, batch_children, H, max_steps)
                 evals += batch_evals
 
             evals = torch.tensor(evals)
@@ -114,8 +114,6 @@ class BSGModelSolver(Solver):
 
         return children, memory
     
-    def eval(self, model_solver, children, H, max_steps, memory):
-        children_copy = [copy.deepcopy(child) for child in children]
-        model_solver.memory = memory
-        result = model_solver.solve_from_layouts(children_copy, H, max_steps)
-        return [r[1] for r in result], model_solver.memory
+    def eval(self, frg_solver, children, H, max_steps):
+        result = frg_solver.solve_from_layouts(children, H, max_steps)
+        return [r[1] for r in result]
