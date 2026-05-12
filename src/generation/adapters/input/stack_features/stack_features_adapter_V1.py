@@ -2,7 +2,7 @@ from generation.adapters.input.stack_features.stack_features_adapter import Stac
 from cpmp.layout import Layout
 import numpy as np
 
-class StackFeatures3FAdapter(StackFeaturesAdapter):
+class StackFeaturesAdapterV1(StackFeaturesAdapter):
     def to_vec(self, layout: Layout, H: int, S_max: int = 10):
         # 1. Inicializamos la matriz con -1.0 para todas las posiciones (S_max, 3)
         X = np.full((S_max, 3), -1.0, dtype=np.float32)

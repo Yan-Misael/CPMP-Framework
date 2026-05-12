@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from models.base.transformer import Transformer
+from models.transformer import Transformer
 
 class CPMPTransformer(Transformer):
     def __init__(self, H_dim, C_dim, X_dim, d_model=64, nhead=8, num_layers=2, ff_dim_multiplier=4, dropout=0.1):
@@ -24,8 +23,6 @@ class CPMPTransformer(Transformer):
         
         # Token CLS: Representará el resumen de la pila
         self.cls_token = nn.Parameter(torch.randn(1, 1, d_model))
-        
-        self.pos_embedding = nn.Embedding(H_dim + 1, d_model) # +1 por el token CLS
         
         self.intra_stack_attention = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model, nhead, d_model * ff_dim_multiplier, dropout, batch_first=True),
@@ -86,10 +83,6 @@ class CPMPTransformer(Transformer):
             cls_tokens = self.cls_token.expand(curr_B * S_len, 1, -1) # [B'*S, 1, d_model]
             x = torch.cat((cls_tokens, x), dim=1) # [B'*S, H+1, d_model]
 
-            # 4. Positional Encoding
-            positions = torch.arange(H_max + 1, device=device).unsqueeze(0)
-            x = x + self.pos_embedding(positions)
-
             # 5. Máscara de atención para el CLS y contenedores reales
             # El CLS nunca es padding (False). Los contenedores son padding si eran -1.
             cls_mask = torch.zeros((curr_B * S_len, 1), dtype=torch.bool, device=device)
@@ -126,7 +119,7 @@ class CPMPTransformer(Transformer):
 
         return stack_embeddings, memory
 
-    def decode(self, L, X, S, H, stack_embeddings):
+    def decode(self, stack_embeddings, L, X, S, H):
         batch_size, S_len, H_max, C_dim = L.shape
         device = L.device
 
@@ -180,9 +173,4 @@ class CPMPTransformer(Transformer):
         
         logits = logits_matrix[:, mask_no_diag].view(batch_size, -1)
         
-        return logits
-    
-    def forward(self, L, X, S, H):
-        stack_embeddings, _ = self.encode(L, X, S, H)
-        logits = self.decode(L, X, S, H, stack_embeddings)
         return logits

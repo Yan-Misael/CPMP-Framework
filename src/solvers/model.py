@@ -65,8 +65,8 @@ class ModelSolver(Solver):
                 batch_inputs = [torch.cat(tensors, dim=0) for tensors in zip(*batch_data_lists)]
                 
                 # Inferencia en batch
-                stack_embeddings, self.memory = self.model.encode(*batch_inputs, self.memory)
-                logits = self.model.decode(*batch_inputs, stack_embeddings)
+                stack_embeddings, self.memory = self.model.encode(*batch_inputs, memory=self.memory)
+                logits = self.model.decode(stack_embeddings, *batch_inputs)
                 
                 # Ordenamos índices de mejor a peor para cada layout en el batch
                 _, top_indices_batch = torch.sort(logits, dim=1, descending=True)

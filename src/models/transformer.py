@@ -9,5 +9,13 @@ class Transformer(nn.Module, ABC):
         self.hyperparams = hyperparams
 
     @abstractmethod
-    def forward(self, *args, **kwargs):
+    def encode(self, *args, memory=None):
         pass
+
+    @abstractmethod
+    def decode(self, *args):
+        pass
+
+    def forward(self, *args):
+        stack_embeddings, _ = self.encode(*args)
+        return self.decode(stack_embeddings, *args)

@@ -91,7 +91,7 @@ def load_data_from_path(filepath):
 def load_data(filename):
     return load_data_from_path(DATA_FOLDER / filename)
 
-def generate_dataset(data_files, output_name, min_cost=0, max_cost=999999, max_size=999999):
+def generate_dataset(data_files, output_name, min_cost=0, max_cost=999999, max_size=999999, balanced=False):
     output_path = DATA_FOLDER / output_name
     all_data = {}
     input_order = []
@@ -102,7 +102,6 @@ def generate_dataset(data_files, output_name, min_cost=0, max_cost=999999, max_s
         if path.exists():
             data = load_data_from_path(path)
             if not all_data:
-                # Inicializamos las listas para cada path completo (ej: 'input/layout')
                 all_data = {k: [] for k in data.keys()}
                 input_order = data['_input_order']
                 output_order = data['_output_order']
@@ -112,37 +111,78 @@ def generate_dataset(data_files, output_name, min_cost=0, max_cost=999999, max_s
 
     if not all_data: return
 
-    # Combinar todos los archivos leídos
     combined_data = {k: np.concatenate(all_data[k], axis=0) for k in all_data if not k.startswith('_')}
     
-    # Crear máscara de filtrado por costo
+    # 1. Aplicamos el filtro de rango de costo inicial
     mask = (combined_data['C'] >= min_cost) & (combined_data['C'] <= max_cost)
-    total_available = np.sum(mask)
-    final_len = min(total_available, max_size)
-    
-    # Aplicar máscara y límite de tamaño
     for k in combined_data:
-        combined_data[k] = combined_data[k][mask][:final_len]
+        combined_data[k] = combined_data[k][mask]
 
-    # Escritura del archivo con la nueva estructura
+    # 2. Lógica de balanceo y tamaño máximo integrados
+    if len(combined_data['C']) > 0:
+        if balanced:
+            unique_costs, counts = np.unique(combined_data['C'], return_counts=True)
+            num_costs = len(unique_costs)
+            
+            # Calculamos cuántas muestras por costo queremos (techo teórico)
+            # Priorizamos max_size: cada costo debería aportar max_size / num_costs
+            ideal_samples_per_cost = max_size // num_costs
+            
+            # El límite real para cada bucket es el mínimo entre:
+            # 1. Lo que hay disponible (np.min(counts))
+            # 2. El espacio que nos deja el max_size (ideal_samples_per_cost)
+            limit = min(np.min(counts), ideal_samples_per_cost)
+            
+            balanced_indices = []
+            for cost in unique_costs:
+                indices = np.where(combined_data['C'] == cost)[0]
+                balanced_indices.extend(indices[:limit])
+            
+            # Si después de balancear aún nos sobra espacio (por el redondeo de //),
+            # rellenamos uno a uno desde los costos más bajos hasta llegar a max_size
+            current_idx = 0
+            while len(balanced_indices) < max_size and len(balanced_indices) < len(combined_data['C']):
+                cost_to_fill = unique_costs[current_idx % num_costs]
+                all_indices_for_cost = np.where(combined_data['C'] == cost_to_fill)[0]
+                
+                # Buscamos el siguiente índice de este costo que no hayamos usado
+                used_count_for_this_cost = limit + (current_idx // num_costs)
+                if used_count_for_this_cost < len(all_indices_for_cost):
+                    balanced_indices.append(all_indices_for_cost[used_count_for_this_cost])
+                    current_idx += 1
+                else:
+                    # Si un costo se agota, dejamos de intentar llenar con él
+                    break 
+
+            balanced_indices.sort()
+            for k in combined_data:
+                combined_data[k] = combined_data[k][balanced_indices]
+        else:
+            # Si no hay balanceo, simplemente aplicamos el max_size original
+            final_len = min(len(combined_data['C']), max_size)
+            for k in combined_data:
+                combined_data[k] = combined_data[k][:final_len]
+
+    # 3. Aplicamos el límite final de tamaño (max_size)
+    final_len = min(len(combined_data['C']), max_size)
+    for k in combined_data:
+        combined_data[k] = combined_data[k][:final_len]
+
+    # Escritura del archivo H5
     with h5py.File(output_path, "w") as f:
-        # 1. Crear Grupos
         g_input = f.create_group("input")
         g_output = f.create_group("output")
         
-        # 2. Guardar Inputs
         for k in input_order:
             full_key = f'input/{k}'
             g_input.create_dataset(k, data=combined_data[full_key])
         g_input.attrs['key_order'] = input_order
         
-        # 3. Guardar Outputs
         for k in output_order:
             full_key = f'output/{k}'
             g_output.create_dataset(k, data=combined_data[full_key])
         g_output.attrs['key_order'] = output_order
         
-        # 4. Guardar Costo en la raíz (para compatibilidad con tu H5Dataset)
         f.create_dataset("C", data=combined_data['C'])
 
     print(f"Dataset generado exitosamente en: {output_path} (Tamaño {final_len})")

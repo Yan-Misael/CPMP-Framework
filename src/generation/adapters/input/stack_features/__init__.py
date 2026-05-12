@@ -1,3 +1,3 @@
-from generation.adapters.input.stack_features.stack_features_3F_adapter import StackFeatures3FAdapter
+from generation.adapters.input.stack_features.stack_features_adapter_V1 import StackFeaturesAdapterV1
 
-__all__ = ['StackFeatures3FAdapter']
+__all__ = ['StackFeaturesAdapterV1']

@@ -110,10 +110,12 @@ class BSGCostPredictorSolver(Solver):
         return children
     
     def eval(self, children, H):
+        S = len(children[0].stacks)
+
         # Preparación del batch de datos
         batch_data_lists = []
         for state in children:
-            data = list(self.input_adapter.input_2_vec(state, H))
+            data = list(self.input_adapter.input_2_vec(state, H, S, H))
             for j in range(len(data)):
                 val = data[j]
                 data[j] = torch.tensor([val]) if isinstance(val, (int, float)) else torch.from_numpy(val).unsqueeze(0)

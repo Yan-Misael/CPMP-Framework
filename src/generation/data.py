@@ -132,15 +132,31 @@ def init_worker_sl(H, max_steps, input_adapter_config, output_adapter_config):
     init_worker(H, max_steps, input_adapter_config, output_adapter_config)
     worker_solver = FRGSolver()
 
-def generate_data_sl(folders, H, max_steps, input_adapter_config, output_adapter_config, num_workers, output_name_prefix=None, verbose=True):
+def generate_data_sl(folder, H, max_steps, input_adapter_config, output_adapter_config, num_workers, output_name_prefix=None):
+    # Agrupamos los argumentos de inicialización
     init_args = (H, max_steps, input_adapter_config, output_adapter_config)
-    for folder in folders:
-        instance_files = [os.path.join(folder, f) for f in os.listdir(INSTANCE_FOLDER / folder)]
-        output_name = folder + ".data"
-        if output_name_prefix:
-            output_name = output_name_prefix + "_" + output_name
-        input_data, output_data, costs = generate_data(instance_files, input_adapter_config, output_adapter_config, init_worker_sl, init_args, num_workers)
-        save_data(input_data, output_data, costs, output_name)
+    
+    # Construimos las rutas de las instancias dentro de la carpeta seleccionada
+    folder_path = INSTANCE_FOLDER / folder
+    instance_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path)]
+    
+    # Definimos el nombre del archivo de salida
+    output_name = f"{folder}.data"
+    if output_name_prefix:
+        output_name = f"{output_name_prefix}_{output_name}"
+    
+    # Ejecutamos la generación de datos para la carpeta específica
+    input_data, output_data, costs = generate_data(
+        instance_files, 
+        input_adapter_config, 
+        output_adapter_config, 
+        init_worker_sl, 
+        init_args, 
+        num_workers
+    )
+    
+    # Guardamos los resultados
+    save_data(input_data, output_data, costs, output_name)
     
 def init_worker_rl(H, max_steps, model_cls, model_params, weights, input_adapter_config, output_adapter_config, batch_size):
     global worker_solver

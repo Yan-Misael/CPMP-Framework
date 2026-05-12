@@ -1,4 +1,5 @@
 import os
+import shutil
 from settings import INSTANCE_FOLDER
 from cpmp.layout import Layout
 from solvers.FRG import FRGSolver
@@ -8,19 +9,22 @@ from generation.instances.generators.random_moves import RandomMovesGenerator
 from generation.instances.generators.uniform_cost import UniformCostGenerator
 
 
-def generate_instances(basename: str, instance_generator: InstanceGenerator, amount: int):
-    os.makedirs(INSTANCE_FOLDER / basename, exist_ok=True)
-    instances = instance_generator.generate_instances(amount)
+def generate_instances(basename: str, generator: InstanceGenerator, amount: int):
+    shutil.rmtree(INSTANCE_FOLDER / basename, ignore_errors=True)
+    os.makedirs(INSTANCE_FOLDER / basename)
+    instances = generator.generate_instances(amount)
 
     for i, inst in enumerate(instances):
         filepath = INSTANCE_FOLDER / basename / f'{basename}-{i}.txt'
         with open(filepath, 'w') as f:
-            f.write(f"{instance_generator.S} {instance_generator.N}")
+            f.write(f"{generator.S} {generator.N}")
             for s in inst:
                 f.write("\n")
                 f.write(f"{len(s)} ")
                 for g in s:
                     f.write(f"{g} ")
+
+    print("Instancias guardadas en:", INSTANCE_FOLDER / basename)
 
 def read_instance(file, H):
     with open(INSTANCE_FOLDER / file) as f:

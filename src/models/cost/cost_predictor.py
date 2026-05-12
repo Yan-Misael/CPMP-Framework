@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models.base.transformer import Transformer
+from models.transformer import Transformer
 
 class CostPredictorTransformer(Transformer):
     def __init__(self, H, C_dim, X_dim, d_model=64, nhead=8, num_layers=2, ff_dim_multiplier=4, dropout=0.1):
@@ -38,23 +38,31 @@ class CostPredictorTransformer(Transformer):
             nn.LayerNorm(d_model),
             nn.Linear(d_model, 1)
         )
+    
+    def encode(self, L, X, S, H, memory=None):
+        batch_size, S_len, H_max, C_dim = L.shape
+        device = L.device
+        
+        padding_mask = (L == -1).all(dim=-1) 
+        x = self.input_proj(L.float())
+        x = torch.where(padding_mask.unsqueeze(-1), self.empty_embed, x)
+        
+        x = x.view(batch_size * S_len, H_max, self.d_model) 
+        x = self.intra_attn(x) 
+        
+        x = x.view(batch_size, S_len, H_max, self.d_model)
+        x_flat = x.view(batch_size, S_len, H_max * self.d_model)
+        stack_vertical_info = self.summary_layer(x_flat) 
+        
+        x_external_info = self.x_proj(X) 
+        combined = torch.cat([stack_vertical_info, x_external_info], dim=-1)
+        stack_embeddings = self.fusion(combined) 
+        stack_embeddings = self.fusion_norm(stack_embeddings)
 
-    def forward(self, S, X):
-        batch_size, S_len, H, _ = S.shape
-        
-        padding_mask = (S == -1).all(dim=-1).unsqueeze(-1)
-        
-        x = self.input_proj(S.float())
-        x = torch.where(padding_mask, self.empty_embed, x)
-        x = x.view(batch_size * S_len, H, self.d_model)
-        x = self.intra_attn(x)
-        
-        x = x.view(batch_size, S_len, H * self.d_model)
-        s_info = self.summary_layer(x)
-        x_ext = self.x_proj(X)
-        embeddings = self.fusion_norm(self.fusion(torch.cat([s_info, x_ext], dim=-1)))
-        
-        z = self.inter_stack(embeddings)
+        return stack_embeddings, memory
+
+    def decode(self, stack_embeddings, L, X, S, H):  
+        z = self.inter_stack(stack_embeddings)
         
         # Global Pooling por Atención
         attn_weights = torch.softmax(self.cost_attention(z), dim=1)

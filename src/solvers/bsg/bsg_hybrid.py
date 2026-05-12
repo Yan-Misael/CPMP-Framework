@@ -69,7 +69,7 @@ class BSGHybridSolver(Solver):
         # Preparación del batch de datos
         batch_data_lists = []
         for state in states:
-            data = list(self.input_adapter.input_2_vec(state, H))
+            data = list(self.input_adapter.input_2_vec(state, H, S, H))
             for j in range(len(data)):
                 val = data[j]
                 data[j] = torch.tensor([val]) if isinstance(val, (int, float)) else torch.from_numpy(val).unsqueeze(0)
@@ -79,8 +79,8 @@ class BSGHybridSolver(Solver):
         
         # Inferencia en batch
         with torch.no_grad():
-            stack_embeddings, memory = self.model.encode(*batch_inputs, memory)
-            logits = self.model.decode(*batch_inputs, stack_embeddings)
+            stack_embeddings, memory = self.model.encode(*batch_inputs, memory=memory)
+            logits = self.model.decode(stack_embeddings, *batch_inputs)
         
         # Ordenamos índices de mejor a peor para cada layout en el batch
         top_values_batch, top_indices_batch = torch.sort(logits, dim=1, descending=True)

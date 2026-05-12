@@ -79,8 +79,8 @@ class BSGModelSolver(Solver):
         
         # Inferencia en batch
         with torch.no_grad():
-            stack_embeddings, memory = self.model.encode(*batch_inputs, memory)
-            logits = self.model.decode(*batch_inputs, stack_embeddings)
+            stack_embeddings, memory = self.model.encode(*batch_inputs, memory=memory)
+            logits = self.model.decode(stack_embeddings, *batch_inputs)
         
         # Ordenamos índices de mejor a peor para cada layout en el batch
         top_values_batch, top_indices_batch = torch.sort(logits, dim=1, descending=True)
