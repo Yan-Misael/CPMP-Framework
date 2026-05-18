@@ -126,15 +126,17 @@ def init_worker(H, max_steps, input_adapter_config, output_adapter_config):
     worker_H = H
     worker_max_steps = max_steps
 
-def init_worker_sl(H, max_steps, input_adapter_config, output_adapter_config):
+def init_worker_sl(H, max_steps, input_adapter_config, output_adapter_config, solver_config):
     global worker_solver
 
     init_worker(H, max_steps, input_adapter_config, output_adapter_config)
-    worker_solver = FRGSolver()
 
-def generate_data_sl(folder, H, max_steps, input_adapter_config, output_adapter_config, num_workers, output_name_prefix=None):
+    solver_class, *solver_args = solver_config
+    worker_solver = solver_class(*solver_args)
+
+def generate_data_sl(folder, H, max_steps, input_adapter_config, output_adapter_config, solver_config, num_workers, output_name_prefix=None):
     # Agrupamos los argumentos de inicialización
-    init_args = (H, max_steps, input_adapter_config, output_adapter_config)
+    init_args = (H, max_steps, input_adapter_config, output_adapter_config, solver_config)
     
     # Construimos las rutas de las instancias dentro de la carpeta seleccionada
     folder_path = INSTANCE_FOLDER / folder
