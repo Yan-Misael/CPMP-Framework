@@ -91,13 +91,19 @@ def load_data_from_path(filepath):
 def load_data(filename):
     return load_data_from_path(DATA_FOLDER / filename)
 
-def generate_dataset(data_files, output_name, min_cost=0, max_cost=999999, max_size=999999, balanced=False):
+def generate_dataset(data_files, output_name, min_cost=0, max_cost=999999, max_size=999999, balance_method=None, seed=42):
+    """
+    Genera un dataset combinado y opcionalmente balanceado.
+    
+    balance_method: None (sin balanceo), 'cost' (por costo), 'file' (por archivo de origen)
+    """
     output_path = DATA_FOLDER / output_name
     all_data = {}
     input_order = []
     output_order = []
+    file_indices = [] # Guardará el índice del archivo origen para cada fila
     
-    for data_file in data_files:
+    for idx, data_file in enumerate(data_files):
         path = DATA_FOLDER / data_file
         if path.exists():
             data = load_data_from_path(path)
@@ -106,31 +112,47 @@ def generate_dataset(data_files, output_name, min_cost=0, max_cost=999999, max_s
                 input_order = data['_input_order']
                 output_order = data['_output_order']
             
+            # Asumimos que todas las keys tienen el mismo largo de filas en este archivo
+            # Usamos una key común que no empiece con '_' para medir el largo
+            any_key = [k for k in data if not k.startswith('_')][0]
+            num_rows = len(data[any_key])
+            
+            # Guardamos a qué archivo pertenece cada fila de este bloque
+            file_indices.append(np.full(num_rows, idx))
+            
             for k in data:
                 all_data[k].append(data[k])
 
     if not all_data: return
 
     combined_data = {k: np.concatenate(all_data[k], axis=0) for k in all_data if not k.startswith('_')}
+    # Creamos el array global de origen de archivos
+    file_origin = np.concatenate(file_indices, axis=0)
     
     # 1. Aplicamos el filtro de rango de costo inicial
     mask = (combined_data['C'] >= min_cost) & (combined_data['C'] <= max_cost)
+    file_origin = file_origin[mask] # También filtramos el vector de origen
     for k in combined_data:
         combined_data[k] = combined_data[k][mask]
 
+    # Usamos el nuevo generador de NumPy recomendado para evitar alterar el estado global
+    rng = np.random.default_rng(seed)
+    shuffle_indices = rng.permutation(len(combined_data['C']))
+    
+    # Mezclamos tanto el origen de archivos como todas las matrices de datos de forma alineada
+    file_origin = file_origin[shuffle_indices]
+    for k in combined_data:
+        combined_data[k] = combined_data[k][shuffle_indices]
+
     # 2. Lógica de balanceo y tamaño máximo integrados
     if len(combined_data['C']) > 0:
-        if balanced:
+        
+        # --- OPCIÓN A: BALANCEO POR COSTO ---
+        if balance_method == 'cost':
             unique_costs, counts = np.unique(combined_data['C'], return_counts=True)
             num_costs = len(unique_costs)
             
-            # Calculamos cuántas muestras por costo queremos (techo teórico)
-            # Priorizamos max_size: cada costo debería aportar max_size / num_costs
             ideal_samples_per_cost = max_size // num_costs
-            
-            # El límite real para cada bucket es el mínimo entre:
-            # 1. Lo que hay disponible (np.min(counts))
-            # 2. El espacio que nos deja el max_size (ideal_samples_per_cost)
             limit = min(np.min(counts), ideal_samples_per_cost)
             
             balanced_indices = []
@@ -138,27 +160,55 @@ def generate_dataset(data_files, output_name, min_cost=0, max_cost=999999, max_s
                 indices = np.where(combined_data['C'] == cost)[0]
                 balanced_indices.extend(indices[:limit])
             
-            # Si después de balancear aún nos sobra espacio (por el redondeo de //),
-            # rellenamos uno a uno desde los costos más bajos hasta llegar a max_size
             current_idx = 0
             while len(balanced_indices) < max_size and len(balanced_indices) < len(combined_data['C']):
                 cost_to_fill = unique_costs[current_idx % num_costs]
                 all_indices_for_cost = np.where(combined_data['C'] == cost_to_fill)[0]
                 
-                # Buscamos el siguiente índice de este costo que no hayamos usado
                 used_count_for_this_cost = limit + (current_idx // num_costs)
                 if used_count_for_this_cost < len(all_indices_for_cost):
                     balanced_indices.append(all_indices_for_cost[used_count_for_this_cost])
                     current_idx += 1
                 else:
-                    # Si un costo se agota, dejamos de intentar llenar con él
                     break 
 
             balanced_indices.sort()
             for k in combined_data:
                 combined_data[k] = combined_data[k][balanced_indices]
+                
+        # --- OPCIÓN B: BALANCEO POR ARCHIVO (NUEVA) ---
+        elif balance_method == 'file':
+            unique_files, counts = np.unique(file_origin, return_counts=True)
+            num_files = len(unique_files)
+            
+            # Mismo principio: cuántas muestras ideales por archivo
+            ideal_samples_per_file = max_size // num_files
+            limit = min(np.min(counts), ideal_samples_per_file)
+            
+            balanced_indices = []
+            for f_idx in unique_files:
+                indices = np.where(file_origin == f_idx)[0]
+                balanced_indices.extend(indices[:limit])
+                
+            # Rellenar uno a uno si sobra espacio por redondeo (igual que con el costo)
+            current_idx = 0
+            while len(balanced_indices) < max_size and len(balanced_indices) < len(combined_data['C']):
+                file_to_fill = unique_files[current_idx % num_files]
+                all_indices_for_file = np.where(file_origin == file_to_fill)[0]
+                
+                used_count_for_this_file = limit + (current_idx // num_files)
+                if used_count_for_this_file < len(all_indices_for_file):
+                    balanced_indices.append(all_indices_for_file[used_count_for_this_file])
+                    current_idx += 1
+                else:
+                    break
+                    
+            balanced_indices.sort()
+            for k in combined_data:
+                combined_data[k] = combined_data[k][balanced_indices]
+        
+        # --- OPCIÓN C: SIN BALANCEO ---
         else:
-            # Si no hay balanceo, simplemente aplicamos el max_size original
             final_len = min(len(combined_data['C']), max_size)
             for k in combined_data:
                 combined_data[k] = combined_data[k][:final_len]
